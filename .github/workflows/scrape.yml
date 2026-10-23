@@ -20,6 +20,11 @@ on:
         required: false
         type: boolean
         default: false
+      per_episode:
+        description: "Sapuan per-episode untuk magnet yang hilang (lebih lama, lebih lengkap)"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -38,6 +43,7 @@ jobs:
         run: |
           ARGS=""
           if [ "${{ inputs.trusted }}" = "true" ]; then ARGS="$ARGS --trusted"; fi
+          if [ "${{ inputs.per_episode }}" = "false" ]; then ARGS="$ARGS --no-per-episode"; fi
           if [ -n "${{ inputs.anilist_id }}" ]; then
             python -m src.scraper --id "${{ inputs.anilist_id }}" $ARGS
           elif [ -n "${{ inputs.title }}" ]; then

@@ -6,7 +6,8 @@ Scraper katalog anime v1 — **metadata dari AniList** + **torrent/magnet dari N
 
 1. **AniList** (`src/anilist.py`) — GraphQL publik: judul (romaji/inggris/native), poster HD, banner, sinopsis, jumlah episode, musim/tahun, skor, genre, studio, trailer.
 2. **Nyaa.si** (`src/nyaa.py`) — RSS resmi kategori `1_2` (Anime – English-translated), diurutkan dari seeders terbanyak. Magnet disusun dari `infoHash` + tracker publik bawaan Nyaa.
-3. **Matcher** (`src/matcher.py`) — mengurai nomor episode, kualitas (2160p/1080p/720p/480p), dan grup rilis dari judul rilis; memilih **satu rilis terbaik per episode** (seeders + kualitas + trusted), rilis batch/rentang dipisah ke `batches`.
+3. **Matcher** (`src/matcher.py`) — mengurai nomor episode, kualitas (2160p/1080p/720p/480p), grup rilis, dan penanda musim dari judul rilis; memilih **satu rilis terbaik per episode** (seeders + kualitas + trusted), rilis batch/rentang dipisah ke `batches`. Rilis berpenanda musim lain dibuang dari entri ini.
+4. **Sapuan per-episode** (`src/scraper.py`) — sesudah pencarian umum, setiap episode yang belum punya magnet dicari dengan query khusus (`Judul - 05`, varian inggris, dst.) sampai lengkap atau kuota sapuan habis (baku 60/judul, `--max-sweep`). Hasil cakupan dicatat di `episodeCoverage` tiap judul (`found/total/missing`). Matikan dengan `--no-per-episode`.
 
 ## Menjalankan
 
@@ -38,6 +39,7 @@ Contoh isi satu judul:
   "title": { "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End" },
   "poster": "https://s4.anilist.co/.../extraLarge.jpg",
   "episodesTotal": 28,
+  "episodeCoverage": { "total": 28, "found": 27, "missing": [10] },
   "genres": ["Adventure", "Drama", "Fantasy"],
   "torrents": {
     "episodes": [

@@ -8,6 +8,9 @@ Rilis batch/rentang masuk keranjang `batches`, sisanya per episode.
 import re
 
 RE_GROUP = re.compile(r"^\[([^\]]+)\]\s*")
+RE_SEASON_WORD = re.compile(r"\b(\d)(?:st|nd|rd|th)\s+Season\b", re.IGNORECASE)
+RE_SEASON_S = re.compile(r"\bS(\d)\b")
+RE_SEASON_FULL = re.compile(r"\bSeason\s+(\d)\b", re.IGNORECASE)
 RE_QUALITY = re.compile(r"\b(2160p|1080p|720p|480p|360p)\b", re.IGNORECASE)
 RE_RANGE = re.compile(r"\b(\d{1,3})\s*[-~]\s*(\d{1,3})\b")
 RE_BATCH_WORD = re.compile(r"\b(batch|complete|collection)\b", re.IGNORECASE)
@@ -16,6 +19,17 @@ RE_EP_TAG = re.compile(r"\b(?:EP|E)\s?(\d{1,4})(?:v\d+)?\b", re.IGNORECASE)
 RE_EP_BRACKET = re.compile(r"\[(\d{1,3})\]")
 
 QUALITY_RANK = {"2160p": 4, "1080p": 3, "720p": 2, "480p": 1, "360p": 0}
+
+
+def season_of(title):
+    """Nomor musim dari penanda judul ('2nd Season', 'S2', 'Season 3'); None bila tak ada."""
+    if not title:
+        return None
+    for pattern in (RE_SEASON_WORD, RE_SEASON_FULL, RE_SEASON_S):
+        m = pattern.search(title)
+        if m:
+            return int(m.group(1))
+    return None
 
 
 def parse_release(raw_title):
@@ -49,6 +63,7 @@ def parse_release(raw_title):
         "quality": quality,
         "episode": episode,
         "range": ep_range,
+        "season": season_of(title),
         "isBatch": is_batch or episode is None,
     }
 
@@ -60,17 +75,22 @@ def _score(rel):
     return (rel.get("seeders", 0) + trusted, q)
 
 
-def organize(releases):
+def organize(releases, expected_season=None):
     """Pisahkan rilis menjadi {episodes: [...terbaik per episode...], batches: [...]}.
 
     Setiap episode menyimpan SATU rilis terbaik; jumlah alternatif dicatat.
     Batch diurutkan dari seeders terbanyak.
+    Bila expected_season diketahui, rilis berpenanda musim LAIN dibuang —
+    rilis '2nd Season' tidak boleh nyasar ke entri musim 1.
     """
     by_ep = {}
     alt_count = {}
     batches = []
     for rel in releases:
         info = parse_release(rel.get("rawTitle", ""))
+        if (expected_season is not None and info["season"] is not None
+                and info["season"] != expected_season):
+            continue
         entry = {**rel, **info}
         entry.pop("isBatch", None)
         if info["isBatch"]:
@@ -90,3 +110,27 @@ def organize(releases):
         episodes.append(entry)
     batches.sort(key=lambda r: r.get("seeders", 0), reverse=True)
     return {"episodes": episodes, "batches": batches[:10]}
+
+
+def filter_episode(releases, episode, expected_season=None):
+    """Saring rilis mentah menjadi kandidat SATU episode tertentu (bukan batch,
+    bukan musim lain). Dipakai sapuan per-episode."""
+    out = []
+    for rel in releases:
+        info = parse_release(rel.get("rawTitle", ""))
+        if info["isBatch"] or info["episode"] != episode:
+            continue
+        if (expected_season is not None and info["season"] is not None
+                and info["season"] != expected_season):
+            continue
+        entry = {**rel, **info}
+        entry.pop("isBatch", None)
+        out.append(entry)
+    return out
+
+
+def best_of(candidates):
+    """Rilis terbaik dari daftar kandidat (seeders + trusted + kualitas)."""
+    if not candidates:
+        return None
+    return max(candidates, key=_score)
