@@ -15,6 +15,7 @@ Struktur tiap judul: metadata AniList utuh + torrents.episodes
 ukuran, kualitas, grup rilis) + torrents.batches.
 """
 import argparse
+from collections import Counter
 import datetime
 import json
 import pathlib
@@ -30,9 +31,12 @@ def utc_now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def sweep_episode(names, episode, expected_season, trusted_only=False):
+def sweep_episode(names, episode, expected_season, trusted_only=False,
+                  match_names=None, known_groups=None):
     """Cari SATU episode dengan query khusus. Urutan coba:
-    'Judul - 05' (romaji) -> 'Judul - 05' (inggris) -> 'Judul 05' (romaji).
+    'Judul - 05' (romaji) -> 'Judul - 05' (inggris) -> 'Judul 05' (romaji)
+    -> 'Grup Judul 05' untuk grup rilis yang sudah dikenal dari judul ini
+    (query umum sering tenggelam oleh batch berseeders besar di RSS 75 slot).
     Mengembalikan entri rilis terbaik atau None."""
     romaji = names[0] if names else ""
     english = names[1] if len(names) > 1 else ""
@@ -43,19 +47,33 @@ def sweep_episode(names, episode, expected_season, trusted_only=False):
         queries.append(f"{english} - {episode:02d}")
     if romaji:
         queries.append(f"{romaji} {episode:02d}")
+    for group in (known_groups or [])[:2]:
+        if group and romaji:
+            queries.append(f"{group} {romaji} {episode:02d}")
+    all_candidates = []
+    seen = set()
     for query in queries:
         try:
             found = nyaa.search(query, trusted_only=trusted_only)
         except Exception:
             found = []
-        candidates = matcher.filter_episode(found, episode, expected_season)
-        if candidates:
-            best = matcher.best_of(candidates)
-            best["alternatives"] = len(candidates) - 1
-            best["viaSweep"] = True
-            return best
+        for cand in matcher.filter_episode(found, episode, expected_season,
+                                           names=match_names):
+            key = cand.get("infoHash") or cand.get("pageUrl")
+            if key not in seen:
+                seen.add(key)
+                all_candidates.append(cand)
+        if all_candidates:
+            best_so_far = matcher.best_of(all_candidates)
+            if best_so_far.get("seeders", 0) >= 5:
+                break  # sudah cukup sehat, hemat permintaan
         time.sleep(0.8)
-    return None
+    if not all_candidates:
+        return None
+    best = matcher.best_of(all_candidates)
+    best["alternatives"] = len(all_candidates) - 1
+    best["viaSweep"] = True
+    return best
 
 
 def build_entry(meta, trusted_only=False, per_episode=True, max_sweep=60):
@@ -66,11 +84,15 @@ def build_entry(meta, trusted_only=False, per_episode=True, max_sweep=60):
             names.append(value)
     romaji = (meta.get("title") or {}).get("romaji") or ""
     expected_season = matcher.season_of(romaji) or 1
+    total = meta.get("episodesTotal")
+    match_names = list(names)
+    for syn in meta.get("synonyms") or []:
+        if syn and syn not in match_names:
+            match_names.append(syn)
 
     releases = nyaa.search_title(names, trusted_only=trusted_only)
-    torrents = matcher.organize(releases, expected_season=expected_season)
-
-    total = meta.get("episodesTotal")
+    torrents = matcher.organize(releases, expected_season=expected_season,
+                                names=match_names, max_episode=total)
     found_eps = {e["episode"] for e in torrents["episodes"]}
     missing = ([ep for ep in range(1, total + 1) if ep not in found_eps]
                if total else [])
@@ -82,8 +104,14 @@ def build_entry(meta, trusted_only=False, per_episode=True, max_sweep=60):
             missing_sweep = missing[:max_sweep]
         else:
             missing_sweep = missing
+        group_counts = Counter(
+            e["group"] for e in torrents["episodes"] + torrents["batches"]
+            if e.get("group"))
+        known_groups = [g for g, _ in group_counts.most_common(2)]
         for ep in missing_sweep:
-            best = sweep_episode(names, ep, expected_season, trusted_only=trusted_only)
+            best = sweep_episode(names, ep, expected_season,
+                                 trusted_only=trusted_only, match_names=match_names,
+                                 known_groups=known_groups)
             if best is not None:
                 torrents["episodes"].append(best)
                 found_eps.add(ep)

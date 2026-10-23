@@ -32,6 +32,37 @@ def season_of(title):
     return None
 
 
+_SEP_CHARS = " \t-_:—–.,'\"()[]"
+_IGNORE_TOKENS = {"tv"}
+
+
+def is_foreign_title(raw_title, names):
+    """True bila judul rilis jelas milik entri LAIN (arc/lanjutan berjudul beda).
+
+    Rilis satu entri umumnya persis 'Judul - 05'. Bila sesudah nama judul yang
+    dikenal masih ada sisa kata (mis. ': Shimetsu Kaiyuu - Zenpen'), rilis itu
+    milik entri arc/musim lain. Bila nama judul tidak dikenal sama sekali,
+    tidak bisa dibuktikan asing -> False (dipertahankan).
+    """
+    if not names:
+        return False
+    title = RE_GROUP.sub("", raw_title or "").strip()
+    low = title.lower()
+    for name in sorted(names, key=len, reverse=True):
+        if not name:
+            continue
+        n = name.lower().strip()
+        if low.startswith(n):
+            rest = low[len(n):]
+            # Potong di penanda episode/ekor berkas, sisakan kepala judul saja.
+            rest = re.split(r"\s-\s\d|\[\d{3,4}p|\.\w{3}$", rest)[0]
+            rest = re.sub(r"\(\d{4}\)", " ", rest)
+            words = [w for w in re.split(r"[^a-z]+", rest)
+                     if len(w) >= 3 and w not in _IGNORE_TOKENS]
+            return bool(words)
+    return False
+
+
 def parse_release(raw_title):
     title = raw_title or ""
     group = None
@@ -75,21 +106,27 @@ def _score(rel):
     return (rel.get("seeders", 0) + trusted, q)
 
 
-def organize(releases, expected_season=None):
+def organize(releases, expected_season=None, names=None, max_episode=None):
     """Pisahkan rilis menjadi {episodes: [...terbaik per episode...], batches: [...]}.
 
     Setiap episode menyimpan SATU rilis terbaik; jumlah alternatif dicatat.
     Batch diurutkan dari seeders terbanyak.
-    Bila expected_season diketahui, rilis berpenanda musim LAIN dibuang —
-    rilis '2nd Season' tidak boleh nyasar ke entri musim 1.
+    Buang: rilis berpenanda musim LAIN, rilis milik entri arc lain
+    (is_foreign_title), dan episode di luar jumlah total entri ini
+    (penomoran absolut waralaba, mis. ep 59 di entri 24 episode).
     """
     by_ep = {}
     alt_count = {}
     batches = []
     for rel in releases:
+        if is_foreign_title(rel.get("rawTitle", ""), names):
+            continue
         info = parse_release(rel.get("rawTitle", ""))
         if (expected_season is not None and info["season"] is not None
                 and info["season"] != expected_season):
+            continue
+        if (max_episode is not None and info["episode"] is not None
+                and info["episode"] > max_episode):
             continue
         entry = {**rel, **info}
         entry.pop("isBatch", None)
@@ -112,11 +149,13 @@ def organize(releases, expected_season=None):
     return {"episodes": episodes, "batches": batches[:10]}
 
 
-def filter_episode(releases, episode, expected_season=None):
+def filter_episode(releases, episode, expected_season=None, names=None):
     """Saring rilis mentah menjadi kandidat SATU episode tertentu (bukan batch,
-    bukan musim lain). Dipakai sapuan per-episode."""
+    bukan musim lain, bukan milik entri arc lain). Dipakai sapuan per-episode."""
     out = []
     for rel in releases:
+        if is_foreign_title(rel.get("rawTitle", ""), names):
+            continue
         info = parse_release(rel.get("rawTitle", ""))
         if info["isBatch"] or info["episode"] != episode:
             continue
