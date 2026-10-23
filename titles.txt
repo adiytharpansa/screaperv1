@@ -1,5 +1,8 @@
 # Daftar pantau screaperv1 — satu judul per baris (nama bebas, dicari di AniList).
 # Baris diawali # diabaikan.
 Sousou no Frieren
+Sousou no Frieren 2nd Season
 Jujutsu Kaisen
+Jujutsu Kaisen: Shimetsu Kaiyuu - Zenpen
 Chainsaw Man
+Chainsaw Man Movie: Reze-hen
