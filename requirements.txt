@@ -1,0 +1,1 @@
+# screaperv1 hanya memakai pustaka standar Python 3.11+ — tidak ada dependensi.

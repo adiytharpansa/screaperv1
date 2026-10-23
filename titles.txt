@@ -1,0 +1,5 @@
+# Daftar pantau screaperv1 — satu judul per baris (nama bebas, dicari di AniList).
+# Baris diawali # diabaikan.
+Sousou no Frieren
+Jujutsu Kaisen
+Chainsaw Man
